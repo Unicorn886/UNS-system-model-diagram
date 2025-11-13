@@ -1,0 +1,77 @@
+@startuml UNS_南向信息流时序图
+
+title UNS 下行（南向）信息流时序图 - 从企业应用到设备控制
+
+participant "企业应用\n(MES/AI系统)" as Enterprise
+participant "Kafka集群" as Kafka
+participant "桥接器\n(Bridge)" as Bridge
+participant "Schema Registry" as Schema
+participant "MQTT Broker\n(EMQX)" as Broker
+participant "边缘网关\n(Edge Gateway)" as Edge
+participant "设备层\n(PLC/执行器)" as Device
+
+' === 命令下发准备 ===
+group 命令Schema验证 [前置校验]
+    Enterprise -> Schema: 验证命令Schema\nPOST /compatibility/subjects/device-command/versions/latest
+    Schema --> Enterprise: Schema验证通过
+end
+
+' === 控制命令下发流程 ===
+group 控制命令下发 [MES/AI → 设备]
+    Enterprise -> Kafka: 发布控制命令\nuns.device.command\nKey: Motor01
+    note right Enterprise: Avro格式: {\n  "deviceId": "Motor01",\n  "command": "SET_SPEED",\n  "value": 1500,\n  "timestamp": 1731048323000\n}
+    
+    Kafka -> Bridge: 消费命令消息
+    Bridge -> Bridge: 解析Avro命令数据
+    Bridge -> Schema: 获取命令Schema验证\nGET /subjects/device-command/versions/latest
+    Schema --> Bridge: 返回命令Schema
+    Bridge -> Bridge: Avro → Sparkplug转换
+    
+    Bridge -> Broker: 发布Sparkplug命令\nspBv1.0/ACME/DCMD/Gateway01/Motor01\nQoS=1
+    note right Bridge: 包含: metricName="Command",\nvalue="SET_SPEED:1500"
+    
+    Broker -> Edge: 订阅DCMD主题
+    Edge -> Edge: 命令解析与安全校验
+    Edge -> Device: 执行控制指令\n(OPC UA Write/Modbus Write)
+    note right Edge: 参数验证\n速率限制\n权限检查
+end
+
+' === 命令执行反馈 ===
+group 命令执行确认 [设备 → 企业系统]
+    Device -> Edge: 返回执行结果
+    Edge -> Broker: DDATA(命令反馈)\nspBv1.0/ACME/DDATA/Gateway01/Motor01
+    note right Edge: 包含: Command_Status="EXECUTED",\nActual_Speed=1500
+    
+    Broker -> Bridge: 订阅DDATA反馈
+    Bridge -> Bridge: 解析反馈数据
+    Bridge -> Schema: 验证反馈Schema\nPOST /compatibility/subjects/command-feedback/versions/latest
+    Schema --> Bridge: Schema验证通过
+    Bridge -> Bridge: Sparkplug → Avro转换
+    
+    Bridge -> Kafka: 发布命令反馈\nuns.command.feedback\nKey: Motor01
+    note right Bridge: Avro格式: {\n  "deviceId": "Motor01",\n  "command": "SET_SPEED",\n  "status": "EXECUTED",\n  "actualValue": 1500,\n  "timestamp": 1731048326000\n}
+    
+    Kafka -> Enterprise: 消费反馈消息
+    Enterprise -> Enterprise: 更新工单状态\n记录操作日志
+end
+
+' === 异常处理流程 ===
+group 异常处理与重试机制
+    alt 命令执行失败
+        Device -> Edge: 返回错误代码
+        Edge -> Broker: DDATA(命令失败)\n包含Error_Code, Error_Msg
+        Broker -> Bridge: 转发失败消息
+        Bridge -> Kafka: 发布命令失败事件\nuns.command.failure
+        Kafka -> Enterprise: 失败通知
+        Enterprise -> Enterprise: 触发告警\n启动重试逻辑
+    end
+    
+    alt 命令超时
+        Enterprise -> Enterprise: 监控超时(30s)
+        Enterprise -> Kafka: 发布超时检查命令\nuns.command.timeout.check
+        Kafka -> Bridge: 消费超时检查
+        Bridge -> Broker: 发布状态查询命令\nspBv1.0/ACME/DCMD/Gateway01/Motor01
+    end
+end
+
+@enduml

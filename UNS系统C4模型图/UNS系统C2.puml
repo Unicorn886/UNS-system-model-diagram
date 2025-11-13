@@ -1,0 +1,54 @@
+@startuml UNS_Container_Diagram
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title UNS容器图
+
+Person(ot_engineer, "OT工程师", "负责运营技术设备维护")
+Person(it_engineer, "IT工程师", "负责信息系统维护")
+
+System_Boundary(uns_boundary, "UNS统一命名空间系统") {
+    Container(mqtt_broker, "MQTT Broker", "EMQX/HiveMQ", "提供实时消息总线\n支持Sparkplug B协议")
+    Container(edge_gateway, "边缘网关", "Edge Gateway", "协议转换与语义映射\nOPC UA/Modbus转MQTT")
+    Container(schema_registry, "Schema Registry", "Avro模式注册中心", "数据契约管理\n版本控制与兼容性")
+    Container(kafka_cluster, "Kafka集群", "Apache Kafka", "企业级流数据总线\n高吞吐消息分发")
+    Container(bridge_service, "桥接服务", "Node.js/Java", "Sparkplug到Avro格式转换\n数据路由与转发")
+    Container(command_service, "命令服务", "微服务", "处理下行控制指令\n命令回写闭环管理")
+    Container(monitoring_dashboard, "监控仪表板", "Grafana", "系统健康监控\n实时数据可视化")
+}
+
+System_Ext(plc_scada, "PLC/SCADA系统", "工业自动化控制")
+System_Ext(mes_system, "MES系统", "制造执行系统")
+System_Ext(erp_system, "ERP系统", "企业资源计划")
+System_Ext(bi_ai_system, "BI/AI系统", "数据分析与AI平台")
+System_Ext(tsdb, "时序数据库", "InfluxDB/Prometheus", "历史数据存储")
+
+' 外部系统关系
+Rel(plc_scada, edge_gateway, "通过OPC UA/Modbus\n提供设备数据", "工业协议")
+Rel(edge_gateway, mqtt_broker, "发布Sparkplug B消息\n设备状态管理", "MQTT/Sparkplug B")
+Rel(mqtt_broker, bridge_service, "订阅设备数据流\n转发到Kafka", "MQTT")
+Rel(bridge_service, schema_registry, "注册/获取Avro Schema\n数据格式验证", "REST API")
+Rel(bridge_service, kafka_cluster, "发布Avro格式数据流\n到相应Topic", "Kafka Protocol")
+Rel(kafka_cluster, mes_system, "提供实时生产数据\n接收指令反馈", "Kafka Consumer")
+Rel(kafka_cluster, erp_system, "提供业务数据流\n生产绩效指标", "Kafka Consumer")
+Rel(kafka_cluster, bi_ai_system, "提供分析数据源\n模型训练数据", "Kafka Consumer")
+Rel(kafka_cluster, tsdb, "数据持久化存储\n历史数据分析", "Kafka Connect")
+
+' 命令回写关系
+Rel(command_service, kafka_cluster, "消费命令事件\n发布到命令Topic", "Kafka Consumer/Producer")
+Rel(command_service, mqtt_broker, "发布控制命令到设备\n通过Sparkplug CMD", "MQTT")
+Rel(mqtt_broker, edge_gateway, "转发控制指令\n到相应设备", "MQTT/Sparkplug B")
+Rel(edge_gateway, plc_scada, "执行控制命令\n设备参数调整", "工业协议")
+
+' 用户访问关系
+Rel(ot_engineer, edge_gateway, "配置设备连接\n管理标签映射", "Web UI/SSH")
+Rel(ot_engineer, mqtt_broker, "监控消息流\n诊断连接问题", "Web UI")
+Rel(it_engineer, schema_registry, "管理数据模式\n版本控制", "REST API/Web UI")
+Rel(it_engineer, kafka_cluster, "配置Topic\n监控数据流", "Kafka Manager")
+Rel(it_engineer, monitoring_dashboard, "查看系统状态\n性能监控", "Grafana")
+
+' 监控关系
+Rel(mqtt_broker, monitoring_dashboard, "提供Broker指标\n连接数/吞吐量", "Prometheus")
+Rel(kafka_cluster, monitoring_dashboard, "提供Kafka指标\n延迟/积压", "Prometheus")
+Rel(bridge_service, monitoring_dashboard, "提供桥接性能指标\n处理延迟", "Prometheus")
+
+@enduml

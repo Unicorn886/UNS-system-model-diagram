@@ -1,0 +1,217 @@
+@startuml UNS_System_Deployment
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml
+
+
+skinparam {
+  BackgroundColor White
+  ArrowColor Black
+  ActorBorderColor Black
+  ComponentBorderColor Black
+  NodeBorderColor Black
+  RectangleBorderColor Black
+  NoteBackgroundColor White
+  NoteBorderColor Black
+}
+
+title UNS System Deployment Architecture
+
+' === Define nodes and components ===
+
+node "OT Network Zone" as OT_NETWORK {
+  component "PLC/DCS Controller" as PLC
+  component "SCADA System" as SCADA
+  component "Field Sensors" as SENSORS
+  component "Actuator Devices" as ACTUATORS
+}
+
+node "Edge Computing Layer" as EDGE_LAYER {
+  component "Edge Gateway" as EDGE_GATEWAY {
+    component "OPC UA Client" as OPC_CLIENT
+    component "Protocol Converter" as PROTOCOL_CONVERTER
+    component "Sparkplug B Session" as SPARKPLUG_SESSION
+    component "Local Cache" as LOCAL_CACHE
+  }
+  
+  component "Edge Gateway 2" as EDGE_GATEWAY2
+  component "Edge Gateway 3" as EDGE_GATEWAY3
+}
+
+node "UNS Core Platform" as UNS_CORE {
+  component "MQTT Broker Cluster" as MQTT_CLUSTER {
+    component "EMQX Node 1" as EMQX1
+    component "EMQX Node 2" as EMQX2
+    component "Load Balancer" as LOAD_BALANCER
+  }
+  
+  component "Bridge Service Cluster" as BRIDGE_CLUSTER {
+    component "Sparkplug-Avro Converter" as SPARKPLUG_CONVERTER
+    component "Schema Parser" as SCHEMA_PARSER
+    component "Kafka Producer" as KAFKA_PRODUCER
+  }
+  
+  component "Governance Platform" as GOVERNANCE_PLATFORM {
+    component "Schema Registry" as SCHEMA_REGISTRY
+    component "ACL Manager" as ACL_MANAGER
+    component "Metadata Catalog" as METADATA_CATALOG
+  }
+}
+
+node "Streaming Platform" as STREAMING_PLATFORM {
+  component "Kafka Cluster" as KAFKA_CLUSTER {
+    component "Kafka Broker 1" as KAFKA1
+    component "Kafka Broker 2" as KAFKA2
+  }
+  
+  component "Kafka Connect" as KAFKA_CONNECT {
+    component "JDBC Sink" as JDBC_SINK
+    component "HTTP Sink" as HTTP_SINK
+  }
+}
+
+node "Application Layer" as APPLICATION_LAYER {
+  component "MES/MOM System" as MES
+  component "EMS" as EMS
+  component "ERP" as ERP
+  component "BI Platform" as BI
+  component "AI/ML Platform" as AI_ML
+}
+
+node "Monitoring" as MONITORING {
+  component "Prometheus" as PROMETHEUS
+  component "Grafana" as GRAFANA
+  component "Alert Manager" as ALERT_MANAGER
+}
+
+node "Security" as SECURITY_INFRA {
+  component "Auth Service" as AUTH_SERVICE
+  component "Certificate Manager" as CERT_MANAGER
+}
+
+database "Time Series DB" as TSDB {
+  component "InfluxDB" as INFLUXDB
+}
+
+database "Relational DB" as RDBMS {
+  component "PostgreSQL" as POSTGRES
+}
+
+' === Data flow relationships ===
+
+' OT to Edge data flow
+SENSORS -> PLC
+ACTUATORS -> PLC
+PLC -> SCADA
+SCADA -> EDGE_GATEWAY
+EDGE_GATEWAY2 -> MQTT_CLUSTER
+EDGE_GATEWAY3 -> MQTT_CLUSTER
+
+' Edge to UNS core data flow
+EDGE_GATEWAY -> MQTT_CLUSTER
+OPC_CLIENT -> PROTOCOL_CONVERTER
+PROTOCOL_CONVERTER -> SPARKPLUG_SESSION
+SPARKPLUG_SESSION -> MQTT_CLUSTER
+LOCAL_CACHE -> SPARKPLUG_SESSION
+
+' UNS core internal data flow
+MQTT_CLUSTER -> BRIDGE_CLUSTER
+LOAD_BALANCER -> EMQX1
+LOAD_BALANCER -> EMQX2
+SPARKPLUG_CONVERTER -> SCHEMA_PARSER
+SCHEMA_PARSER -> SCHEMA_REGISTRY
+SCHEMA_PARSER -> KAFKA_PRODUCER
+KAFKA_PRODUCER -> KAFKA_CLUSTER
+
+' Governance relationships
+GOVERNANCE_PLATFORM -> MQTT_CLUSTER
+GOVERNANCE_PLATFORM -> BRIDGE_CLUSTER
+GOVERNANCE_PLATFORM -> KAFKA_CLUSTER
+METADATA_CATALOG -> EDGE_GATEWAY
+
+' Streaming to applications
+KAFKA_CLUSTER -> KAFKA_CONNECT
+KAFKA_CLUSTER -> MES
+KAFKA_CLUSTER -> EMS
+KAFKA_CLUSTER -> BI
+KAFKA_CLUSTER -> AI_ML
+
+KAFKA_CONNECT -> TSDB
+KAFKA_CONNECT -> RDBMS
+JDBC_SINK -> POSTGRES
+HTTP_SINK -> ERP
+
+' Command feedback flow
+MES -> KAFKA_CLUSTER
+AI_ML -> KAFKA_CLUSTER
+KAFKA_CLUSTER -> BRIDGE_CLUSTER
+BRIDGE_CLUSTER -> MQTT_CLUSTER
+MQTT_CLUSTER -> EDGE_GATEWAY
+EDGE_GATEWAY -> PLC
+
+' Monitoring data flow
+MQTT_CLUSTER -> PROMETHEUS
+BRIDGE_CLUSTER -> PROMETHEUS
+KAFKA_CLUSTER -> PROMETHEUS
+PROMETHEUS -> GRAFANA
+GRAFANA -> ALERT_MANAGER
+
+' Security infrastructure
+AUTH_SERVICE -> MQTT_CLUSTER
+AUTH_SERVICE -> GOVERNANCE_PLATFORM
+CERT_MANAGER -> EDGE_GATEWAY
+CERT_MANAGER -> MQTT_CLUSTER
+
+' === Network boundaries ===
+
+rectangle "DMZ Zone" {
+  MQTT_CLUSTER
+  LOAD_BALANCER
+}
+
+rectangle "Internal App Network" {
+  BRIDGE_CLUSTER
+  GOVERNANCE_PLATFORM
+  KAFKA_CLUSTER
+  APPLICATION_LAYER
+  MONITORING
+}
+
+rectangle "Data Storage Network" {
+  TSDB
+  RDBMS
+}
+
+' === Add explanatory notes ===
+
+note top of OT_NETWORK
+  L0-L1: Devices & Control
+  Protocols: Modbus, OPC UA, EtherNet/IP
+  Real-time: Millisecond level
+end note
+
+note right of EDGE_LAYER
+  L2.5: Edge Computing
+  Functions: Protocol conversion,
+  Semantic mapping, Local cache,
+  Security isolation
+end note
+
+note left of UNS_CORE
+  UNS Semantic Hub
+  Real-time data bus
+  Semantic unification & governance
+end note
+
+note right of STREAMING_PLATFORM
+  Enterprise data streaming
+  High throughput, persistence
+  Support replay & write-back
+end note
+
+note top of APPLICATION_LAYER
+  L3-L4: Business Applications
+  Manufacturing operations
+  Enterprise information systems
+  Data analysis & AI
+end note
+
+@enduml

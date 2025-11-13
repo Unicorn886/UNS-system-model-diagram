@@ -1,0 +1,59 @@
+@startuml UNS_北向信息流时序图
+
+title UNS 上行（北向）信息流时序图 - 从设备到企业应用
+
+participant "设备层\n(PLC/传感器)" as Device
+participant "边缘网关\n(Edge Gateway)" as Edge
+participant "MQTT Broker\n(EMQX)" as Broker
+participant "桥接器\n(Bridge)" as Bridge
+participant "Schema Registry" as Schema
+participant "Kafka集群" as Kafka
+participant "企业应用\n(MES/EMS/BI/AI)" as Enterprise
+
+' === 设备上线注册流程 ===
+group 设备上线注册 [Sparkplug B Birth 机制]
+    Device -> Edge: 设备连接/上电
+    Edge -> Broker: NBIRTH(节点上线)\nspBv1.0/ACME/NBIRTH/Gateway01
+    Broker -> Bridge: 订阅NBIRTH消息
+    Bridge -> Schema: 获取节点Schema\nGET /subjects/gateway-node/versions/latest
+    Schema --> Bridge: 返回Avro Schema
+    Bridge -> Bridge: 验证并转换NBIRTH数据
+    
+    Edge -> Broker: DBIRTH(设备上线)\nspBv1.0/ACME/DBIRTH/Gateway01/Motor01
+    Broker -> Bridge: 订阅DBIRTH消息
+    Bridge -> Schema: 获取设备Schema\nGET /subjects/motor-metric/versions/latest
+    Schema --> Bridge: 返回Avro Schema
+    Bridge -> Bridge: 验证并转换DBIRTH数据
+    Bridge -> Kafka: 发布设备注册事件\nuns.device.registry
+end
+
+' === 实时数据上报流程 ===
+group 实时数据采集与上报 [周期性/事件驱动]
+    loop 每 100ms-1s
+        Device -> Edge: 读取实时数据\n(OPC UA/Modbus)
+        Edge -> Edge: 数据预处理与缓存
+        Edge -> Broker: DDATA(设备数据)\nspBv1.0/ACME/DDATA/Gateway01/Motor01\nQoS=1
+        note right Edge: 包含: Speed, Temperature,\nTimestamp, Quality
+    end
+    
+    Broker -> Bridge: 订阅DDATA消息
+    Bridge -> Bridge: 解析Sparkplug Payload
+    Bridge -> Schema: 验证数据Schema\nPOST /compatibility/subjects/motor-metric/versions/latest
+    Schema --> Bridge: Schema验证通过
+    Bridge -> Bridge: Sparkplug → Avro转换
+    Bridge -> Kafka: 发布Avro格式数据\nuns.device.metric\nKey: Motor01
+    note right Bridge: 二进制Avro格式\n包含: deviceId, metricName,\nvalue, timestamp, quality
+    
+    Kafka -> Enterprise: 消费者组订阅数据
+    Enterprise -> Enterprise: 业务处理\n(实时监控/分析/告警)
+end
+
+' === 数据质量监控 ===
+group 数据质量与状态监控
+    Edge -> Broker: DDEATH(设备离线)\nspBv1.0/ACME/DDEATH/Gateway01/Motor01
+    Broker -> Bridge: 订阅DDEATH消息
+    Bridge -> Kafka: 发布设备离线事件\nuns.device.status
+    Kafka -> Enterprise: 设备状态更新
+end
+
+@enduml

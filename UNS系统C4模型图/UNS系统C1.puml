@@ -1,0 +1,34 @@
+@startuml UNS_System_Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title UNS系统上下文图
+
+Person(ot_engineer, "OT工程师", "负责运营技术设备维护")
+Person(it_engineer, "IT工程师", "负责信息系统维护")
+Person(production_engineer, "生产工程师", "负责生产运营")
+Person(data_scientist, "数据科学家", "负责数据分析与AI模型")
+
+System(uns_system, "UNS统一命名空间系统", "智能制造实时数据语义统一中枢")
+
+System_Ext(plc_scada, "PLC/SCADA系统", "工业自动化控制系统")
+System_Ext(mes_system, "MES系统", "制造执行系统")
+System_Ext(erp_system, "ERP系统", "企业资源计划系统")
+System_Ext(bi_ai_system, "BI/AI系统", "商业智能与人工智能平台")
+System_Ext(ems_system, "EMS系统", "能源管理系统")
+
+Rel(ot_engineer, uns_system, "配置设备连接\n管理边缘节点")
+Rel(it_engineer, uns_system, "配置数据流\n管理权限与治理")
+Rel(production_engineer, uns_system, "监控生产数据\n查看实时指标")
+Rel(data_scientist, uns_system, "获取训练数据\n部署AI模型")
+
+Rel(plc_scada, uns_system, "发布实时数据\n通过MQTT/Sparkplug B")
+Rel(uns_system, mes_system, "提供产线状态数据\n接收工单指令")
+Rel(uns_system, erp_system, "提供生产绩效数据\n接收物料信息")
+Rel(uns_system, bi_ai_system, "提供历史与实时数据流")
+Rel(uns_system, ems_system, "提供能耗数据\n接收能效策略")
+
+Rel_R(plc_scada, uns_system, "接收控制命令\n通过命令回写机制")
+Rel_R(mes_system, uns_system, "下发生产指令\n更新工单状态")
+Rel_R(erp_system, uns_system, "更新计划数据\n下发生产订单")
+
+@enduml
